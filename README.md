@@ -36,6 +36,7 @@ Take them one at a time. Each guide explains every click.
 3. **[Make a game with Claude](docs/3-make-a-game-with-claude.md)**: describe a game, try it out, and put it on your site.
 4. **[Use your kids' drawings](docs/4-use-your-kids-drawings.md)**: turn pictures on paper into characters in the game.
 5. **[Tips and troubleshooting](docs/5-tips-and-troubleshooting.md)**: ideas for making games with kids, and what to do when something goes wrong.
+6. **[Play on a TV](docs/6-play-on-a-tv.md)**: get your games on the big screen with a game controller, from a quick laptop-and-cable setup to a Steam Deck that feels like a real console.
 
 ## Words you'll see
 

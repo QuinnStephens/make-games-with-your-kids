@@ -8,7 +8,7 @@
 - **Expect surprises.** Sometimes Claude gets things wrong, or makes something different from what you pictured. That's normal. Describe what you see and what you wanted instead. "The dog runs off the edge of the screen and disappears" is more helpful than "it's broken".
 - **Copy ideas from games they love.** "Like Mario, but you're a cat" or "like Hide and Seek, but the seeker is a giant pancake" are great starting points.
 - **Every game deserves a title screen.** Kids love seeing their name and their drawing on it. ("Made by Lucy, age 7" is a nice touch, but think about whether you want their name on a public website.)
-- **Show it off.** Opening the site on the TV or a Steam Deck, or sending the link to grandparents, makes it feel real.
+- **Show it off.** Opening the site on the TV (see [Step 6](6-play-on-a-tv.md)) or a Steam Deck, or sending the link to grandparents, makes it feel real.
 
 ## Troubleshooting
 
@@ -52,3 +52,5 @@ Press **F** on a keyboard to go full screen. On a phone, turn it sideways, or us
 ### I'm stuck on something else
 
 Ask Claude. Describe what you were trying to do, what you clicked, and what you see now (paste any error message). It's good at figuring out where things went wrong, including problems with GitHub and Cloudflare.
+
+**Next: [Step 6: Play on a TV with a controller](6-play-on-a-tv.md)**
