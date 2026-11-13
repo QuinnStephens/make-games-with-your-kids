@@ -1,0 +1,17 @@
+{
+  "siteTitle": "Our Family Games",
+  "games": [
+    {
+      "title": "Catch the Stars",
+      "tagline": "Stars are falling. Catch as many as you can!",
+      "folder": "catch-the-stars",
+      "image": "images/catch-the-stars.png"
+    },
+    {
+      "title": "Find the Bunnies",
+      "tagline": "Five bunnies are hiding in the bushes. Can you find them all?",
+      "folder": "find-the-bunnies",
+      "image": "images/find-the-bunnies.png"
+    }
+  ]
+}

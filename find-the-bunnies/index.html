@@ -1,0 +1,263 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>Find the Bunnies</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #9be07a; touch-action: none; }
+  canvas { display: block; width: 100%; height: 100%; }
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+<script src="../back-to-launcher.js"></script>
+<script>
+/* Find the Bunnies
+   Walk around the meadow and bump into bushes. Some of them have a bunny hiding inside!
+   Every bunny you find hops along behind you. Find them all to start a new round.
+   There's no timer and no way to lose.
+
+   Pictures live in assets/. To use your own drawings, replace player.png, bunny.png and
+   bush.png with pictures of the same name (a PNG with a see-through background looks best). */
+
+// ---- Settings you can play with ----
+const BUNNIES = 5;           // how many bunnies hide each round
+const BUSHES = 12;           // how many bushes there are (must be more than BUNNIES)
+const WALK_SPEED = 320;      // how fast the player walks (pixels per second)
+const GRASS = '#9be07a';     // background colour
+const FLOWERS = ['#ff5a78', '#ffd228', '#ffffff', '#b98cff'];
+
+// ---- Pictures ----
+const pictures = {};
+for (const name of ['player', 'bunny', 'bush']) {
+  pictures[name] = new Image();
+  pictures[name].src = `assets/${name}.png`;
+}
+
+// ---- Screen ----
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+let W = 0, H = 0, unit = 1;
+function resize() {
+  const dpr = window.devicePixelRatio || 1;
+  W = innerWidth; H = innerHeight;
+  canvas.width = W * dpr; canvas.height = H * dpr;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  unit = Math.min(W, H) / 700;
+}
+addEventListener('resize', resize);
+resize();
+
+// ---- Game state ----
+// Positions are 0 to 1 across and down the screen, so the meadow fits any window.
+let mode = 'title'; // 'title', 'play' or 'won'
+const player = { x: 0.5, y: 0.85, facing: 1, step: 0 };
+let bushes = [], followers = [], trail = [], flowers = [], found = 0, popups = [];
+
+function newRound() {
+  // Spread the bushes out on a loose grid so they don't overlap.
+  const spots = [];
+  const cols = 4, rows = 3;
+  for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
+    spots.push({ x: (c + 0.5) / cols + (Math.random() - 0.5) * 0.08, y: 0.27 + r * 0.23 + (Math.random() - 0.5) * 0.06 });
+  }
+  spots.sort(() => Math.random() - 0.5);
+  bushes = spots.slice(0, BUSHES).map((s, i) => ({ ...s, bunny: i < BUNNIES, shake: 0, searched: false }));
+  bushes.sort((a, b) => a.y - b.y); // draw the ones further back first
+  flowers = Array.from({ length: 40 }, () => ({ x: Math.random(), y: Math.random(), c: FLOWERS[Math.floor(Math.random() * FLOWERS.length)] }));
+  followers = []; trail = []; found = 0;
+  player.x = 0.5; player.y = 0.93;
+  mode = 'play';
+  beep(660, 0.12);
+}
+
+// ---- Controls: keyboard, controller, mouse and touch ----
+const keys = {};
+addEventListener('keydown', (e) => {
+  keys[e.key] = true;
+  if (e.key === 'f' || e.key === 'F') toggleFullscreen();
+  if (e.key === 'm' || e.key === 'M') muted = !muted;
+  if (mode !== 'play' && (e.key === ' ' || e.key === 'Enter')) newRound();
+});
+addEventListener('keyup', (e) => { keys[e.key] = false; });
+
+let target = null; // where a finger or mouse button is held down
+canvas.addEventListener('pointerdown', (e) => {
+  if (mode !== 'play') return newRound();
+  target = { x: e.clientX / W, y: e.clientY / H };
+});
+canvas.addEventListener('pointermove', (e) => { if (target) target = { x: e.clientX / W, y: e.clientY / H }; });
+addEventListener('pointerup', () => { target = null; });
+
+let padWasPressed = false;
+function readController() {
+  let dx = 0, dy = 0, pressed = false;
+  for (const p of navigator.getGamepads ? navigator.getGamepads() : []) {
+    if (!p) continue;
+    if (Math.hypot(p.axes[0], p.axes[1]) > 0.25) { dx = p.axes[0]; dy = p.axes[1]; }
+    if (p.buttons[14]?.pressed) dx = -1;
+    if (p.buttons[15]?.pressed) dx = 1;
+    if (p.buttons[12]?.pressed) dy = -1;
+    if (p.buttons[13]?.pressed) dy = 1;
+    pressed = p.buttons[0]?.pressed || p.buttons[9]?.pressed;
+  }
+  if (pressed && !padWasPressed && mode !== 'play') newRound();
+  padWasPressed = pressed;
+  return { dx, dy };
+}
+
+function toggleFullscreen() {
+  if (document.fullscreenElement) document.exitFullscreen();
+  else document.documentElement.requestFullscreen?.();
+}
+
+// ---- Sound: little beeps made by the browser, no sound files needed ----
+let audio = null, muted = false;
+function beep(freq, length) {
+  if (muted) return;
+  try {
+    audio = audio || new AudioContext();
+    const osc = audio.createOscillator(), vol = audio.createGain();
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(freq, audio.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(freq * 1.5, audio.currentTime + length);
+    vol.gain.setValueAtTime(0.15, audio.currentTime);
+    vol.gain.exponentialRampToValueAtTime(0.001, audio.currentTime + length);
+    osc.connect(vol).connect(audio.destination);
+    osc.start(); osc.stop(audio.currentTime + length);
+  } catch (e) {}
+}
+
+// ---- Update: runs every frame ----
+function update(dt) {
+  let { dx, dy } = readController();
+  if (mode !== 'play') return;
+
+  if (keys.ArrowLeft || keys.a || keys.A) dx = -1;
+  if (keys.ArrowRight || keys.d || keys.D) dx = 1;
+  if (keys.ArrowUp || keys.w || keys.W) dy = -1;
+  if (keys.ArrowDown || keys.s || keys.S) dy = 1;
+  if (target) {
+    const tx = (target.x - player.x) * W, ty = (target.y - player.y) * H;
+    const dist = Math.hypot(tx, ty);
+    if (dist > 10) { dx = tx / dist; dy = ty / dist; }
+  }
+  const len = Math.hypot(dx, dy);
+  if (len > 1) { dx /= len; dy /= len; }
+
+  player.x = Math.max(0.03, Math.min(0.97, player.x + dx * WALK_SPEED * dt / W));
+  player.y = Math.max(0.1, Math.min(0.95, player.y + dy * WALK_SPEED * dt / H));
+  if (dx) player.facing = Math.sign(dx);
+  if (len > 0.1) {
+    player.step += dt * 10;
+    trail.unshift({ x: player.x, y: player.y });
+    trail.length = Math.min(trail.length, 400);
+  }
+
+  for (const b of bushes) {
+    b.shake = Math.max(0, b.shake - dt);
+    const close = Math.hypot((b.x - player.x) * W, (b.y - player.y) * H) < 85 * unit;
+    if (close && !b.searched) {
+      b.searched = true;
+      b.shake = 0.5;
+      if (b.bunny) {
+        found++;
+        followers.push({ x: b.x, y: b.y });
+        popups.push({ text: 'You found a bunny!', x: b.x, y: b.y - 0.08, life: 1.5 });
+        beep(700, 0.2); setTimeout(() => beep(900, 0.2), 120);
+        if (found === BUNNIES) setTimeout(() => { mode = 'won'; popups = []; beep(1000, 0.6); }, 600);
+      } else {
+        popups.push({ text: 'Not here!', x: b.x, y: b.y - 0.08, life: 1 });
+        beep(300, 0.12);
+      }
+    }
+  }
+
+  // Found bunnies hop along behind the player, each a little further back on the path.
+  followers.forEach((f, i) => {
+    const spot = trail[Math.min(trail.length - 1, (i + 1) * 14)];
+    if (spot) { f.x += (spot.x - f.x) * Math.min(1, dt * 8); f.y += (spot.y - f.y) * Math.min(1, dt * 8); }
+  });
+
+  for (const p of popups) { p.life -= dt; p.y -= dt * 0.03; }
+  popups = popups.filter((p) => p.life > 0);
+}
+
+// ---- Draw: runs every frame ----
+function text(str, x, y, size, color = '#fff') {
+  ctx.font = `bold ${size * unit}px "Trebuchet MS", system-ui, sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.lineWidth = size * unit / 6;
+  ctx.strokeStyle = '#221e3c';
+  ctx.strokeText(str, x, y);
+  ctx.fillStyle = color;
+  ctx.fillText(str, x, y);
+}
+
+function drawPicture(pic, x, y, w, h, flip = false, wiggle = 0) {
+  ctx.save();
+  ctx.translate(x, y);
+  if (wiggle) ctx.rotate(Math.sin(wiggle * 40) * 0.12);
+  if (flip) ctx.scale(-1, 1);
+  ctx.drawImage(pic, -w / 2, -h, w, h); // x, y is the bottom middle of the picture
+  ctx.restore();
+}
+
+function draw(time) {
+  ctx.fillStyle = GRASS;
+  ctx.fillRect(0, 0, W, H);
+  for (const f of flowers) {
+    ctx.fillStyle = f.c;
+    ctx.beginPath(); ctx.arc(f.x * W, f.y * H, 5 * unit, 0, Math.PI * 2); ctx.fill();
+  }
+
+  if (mode === 'title') {
+    text('Find the Bunnies', W / 2, H * 0.38, 80);
+    text('Press Space, A or tap to start', W / 2, H * 0.38 + 70 * unit, 34, '#ffd228');
+    text('Walk with the arrows, the stick or your finger', W / 2, H * 0.38 + 120 * unit, 26);
+    drawPicture(pictures.bunny, W / 2, H * 0.85, 90 * unit, 103 * unit, false, time / 4000);
+    return;
+  }
+
+  // Draw everything from back to front so things lower on the screen are in front.
+  const things = [
+    ...bushes.map((b) => ({ y: b.y, draw: () => drawPicture(pictures.bush, b.x * W, b.y * H, 150 * unit, 117 * unit, false, b.shake) })),
+    ...followers.map((f, i) => ({ y: f.y, draw: () => drawPicture(pictures.bunny, f.x * W, f.y * H - Math.abs(Math.sin(time / 150 + i)) * 10 * unit, 60 * unit, 69 * unit) })),
+    { y: player.y, draw: () => drawPicture(pictures.player, player.x * W, player.y * H - Math.abs(Math.sin(player.step)) * 6 * unit, 90 * unit, 117 * unit, player.facing < 0) },
+  ];
+  things.sort((a, b) => a.y - b.y).forEach((t) => t.draw());
+
+  for (const p of popups) {
+    ctx.globalAlpha = Math.min(1, p.life * 2);
+    text(p.text, p.x * W, p.y * H, 30, '#ffd228');
+  }
+  ctx.globalAlpha = 1;
+
+  text(`Bunnies: ${found} / ${BUNNIES}`, W / 2, 55 * unit, 36);
+
+  if (mode === 'won') {
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
+    ctx.fillRect(0, 0, W, H);
+    text('You found them all!', W / 2, H * 0.42, 72, '#ffd228');
+    text('Press Space, A or tap to play again', W / 2, H * 0.42 + 65 * unit, 32);
+    for (let i = 0; i < BUNNIES; i++) { // a happy bunny dance
+      const x = W / 2 + (i - (BUNNIES - 1) / 2) * 100 * unit;
+      drawPicture(pictures.bunny, x, H * 0.8 - Math.abs(Math.sin(time / 200 + i)) * 30 * unit, 80 * unit, 92 * unit);
+    }
+  }
+}
+
+// ---- The game loop ----
+let last = performance.now();
+function frame(now) {
+  const dt = Math.min(0.05, (now - last) / 1000);
+  last = now;
+  update(dt);
+  draw(now);
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>Catch the Stars</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #1d1a3a; touch-action: none; }
+  canvas { display: block; width: 100%; height: 100%; }
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+<script src="../back-to-launcher.js"></script>
+<script>
+/* Catch the Stars
+   Move left and right to catch the falling stars. Missing a star is fine: there's no way to lose.
+
+   Pictures live in assets/. To use your own drawings, replace player.png and star.png with
+   pictures of the same name (a PNG with a see-through background looks best). */
+
+// ---- Settings you can play with ----
+const PLAYER_SPEED = 600;     // how fast the player moves (pixels per second)
+const STAR_SPEED = 160;       // how fast stars fall at the start
+const STAR_SPEED_UP = 12;     // how much faster stars fall after every 10 caught
+const STARS_AT_ONCE = 3;      // how many stars can be falling at the same time
+const SKY_TOP = '#1d1a3a';    // sky colour at the top of the screen
+const SKY_BOTTOM = '#4b3f8f'; // sky colour at the bottom
+
+// ---- Pictures ----
+const pictures = {};
+for (const name of ['player', 'star']) {
+  pictures[name] = new Image();
+  pictures[name].src = `assets/${name}.png`;
+}
+
+// ---- Screen ----
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+let W = 0, H = 0, unit = 1; // unit scales everything to the window size
+function resize() {
+  const dpr = window.devicePixelRatio || 1;
+  W = innerWidth; H = innerHeight;
+  canvas.width = W * dpr; canvas.height = H * dpr;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  unit = Math.min(W, H) / 700;
+}
+addEventListener('resize', resize);
+resize();
+
+// ---- Game state ----
+let mode = 'title'; // 'title' or 'play'
+const player = { x: 0.5, w: 110, h: 143 }; // x is 0 (left edge) to 1 (right edge)
+let stars = [], sparkles = [], caught = 0, cheer = null;
+const speed = () => STAR_SPEED + Math.floor(caught / 10) * STAR_SPEED_UP;
+
+function start() {
+  mode = 'play';
+  caught = 0; stars = []; sparkles = [];
+  beep(660, 0.12);
+}
+
+function addStar() {
+  stars.push({ x: 0.06 + Math.random() * 0.88, y: -60, spin: Math.random() * 6, wobble: Math.random() * 6 });
+}
+
+// ---- Controls: keyboard, controller, mouse and touch ----
+const keys = {};
+addEventListener('keydown', (e) => {
+  keys[e.key] = true;
+  if (e.key === 'f' || e.key === 'F') toggleFullscreen();
+  if (e.key === 'm' || e.key === 'M') muted = !muted;
+  if (mode === 'title' && (e.key === ' ' || e.key === 'Enter')) start();
+});
+addEventListener('keyup', (e) => { keys[e.key] = false; });
+
+let pointerX = null; // where a finger or mouse button is held down
+canvas.addEventListener('pointerdown', (e) => {
+  if (mode === 'title') return start();
+  pointerX = e.clientX / W;
+});
+canvas.addEventListener('pointermove', (e) => { if (pointerX !== null) pointerX = e.clientX / W; });
+addEventListener('pointerup', () => { pointerX = null; });
+
+let padWasPressed = false;
+function readController() {
+  let move = 0, pressed = false;
+  for (const p of navigator.getGamepads ? navigator.getGamepads() : []) {
+    if (!p) continue;
+    if (Math.abs(p.axes[0]) > 0.2) move = p.axes[0];
+    if (p.buttons[14]?.pressed) move = -1;
+    if (p.buttons[15]?.pressed) move = 1;
+    pressed = p.buttons[0]?.pressed || p.buttons[9]?.pressed;
+  }
+  if (pressed && !padWasPressed && mode === 'title') start();
+  padWasPressed = pressed;
+  return move;
+}
+
+function toggleFullscreen() {
+  if (document.fullscreenElement) document.exitFullscreen();
+  else document.documentElement.requestFullscreen?.();
+}
+
+// ---- Sound: little beeps made by the browser, no sound files needed ----
+let audio = null, muted = false;
+function beep(freq, length) {
+  if (muted) return;
+  try {
+    audio = audio || new AudioContext();
+    const osc = audio.createOscillator(), vol = audio.createGain();
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(freq, audio.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(freq * 1.5, audio.currentTime + length);
+    vol.gain.setValueAtTime(0.15, audio.currentTime);
+    vol.gain.exponentialRampToValueAtTime(0.001, audio.currentTime + length);
+    osc.connect(vol).connect(audio.destination);
+    osc.start(); osc.stop(audio.currentTime + length);
+  } catch (e) {}
+}
+
+// ---- Update: runs every frame ----
+function update(dt) {
+  const padMove = readController();
+  if (mode !== 'play') return;
+
+  let move = padMove;
+  if (keys.ArrowLeft || keys.a || keys.A) move = -1;
+  if (keys.ArrowRight || keys.d || keys.D) move = 1;
+  if (pointerX !== null) {
+    const diff = pointerX - player.x;
+    move = Math.abs(diff) < 0.01 ? 0 : Math.max(-1, Math.min(1, diff * 12));
+  }
+  player.x += move * PLAYER_SPEED * dt / W;
+  player.x = Math.max(0.05, Math.min(0.95, player.x));
+
+  if (stars.length < STARS_AT_ONCE && Math.random() < dt * 1.2) addStar();
+
+  const px = player.x * W, py = H - player.h * unit;
+  for (const s of stars) {
+    s.y += speed() * unit * dt;
+    s.spin += dt * 2;
+    const sx = s.x * W + Math.sin(s.y / 60 + s.wobble) * 20 * unit;
+    s.drawX = sx;
+    // Caught? Generous: anywhere near the player's head or arms counts.
+    if (Math.abs(sx - px) < 80 * unit && s.y > py - 40 * unit && s.y < py + 60 * unit) {
+      s.gone = true;
+      caught++;
+      beep(520 + (caught % 8) * 60, 0.15);
+      for (let i = 0; i < 12; i++) {
+        const a = Math.random() * Math.PI * 2, v = 100 + Math.random() * 200;
+        sparkles.push({ x: sx, y: s.y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, life: 0.6 });
+      }
+      if (caught % 10 === 0) { cheer = { text: `${caught} stars! Amazing!`, life: 2 }; beep(880, 0.4); }
+    }
+    if (s.y > H + 80) s.gone = true; // missed: no problem, another one will come
+  }
+  stars = stars.filter((s) => !s.gone);
+
+  for (const p of sparkles) { p.x += p.vx * dt; p.y += p.vy * dt; p.life -= dt; }
+  sparkles = sparkles.filter((p) => p.life > 0);
+  if (cheer && (cheer.life -= dt) <= 0) cheer = null;
+}
+
+// ---- Draw: runs every frame ----
+function text(str, x, y, size, color = '#fff') {
+  ctx.font = `bold ${size * unit}px "Trebuchet MS", system-ui, sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.lineWidth = size * unit / 6;
+  ctx.strokeStyle = '#221e3c';
+  ctx.strokeText(str, x, y);
+  ctx.fillStyle = color;
+  ctx.fillText(str, x, y);
+}
+
+function draw(time) {
+  const sky = ctx.createLinearGradient(0, 0, 0, H);
+  sky.addColorStop(0, SKY_TOP); sky.addColorStop(1, SKY_BOTTOM);
+  ctx.fillStyle = sky; ctx.fillRect(0, 0, W, H);
+
+  // twinkly background dots
+  for (let i = 0; i < 60; i++) {
+    const x = (i * 137.5 % 100) / 100 * W, y = (i * 61.8 % 100) / 100 * H * 0.8;
+    ctx.globalAlpha = 0.3 + 0.3 * Math.sin(time / 500 + i);
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(x, y, 3, 3);
+  }
+  ctx.globalAlpha = 1;
+
+  const size = 70 * unit;
+  for (const s of stars) {
+    ctx.save();
+    ctx.translate(s.drawX ?? s.x * W, s.y);
+    ctx.rotate(Math.sin(s.spin) * 0.3);
+    ctx.drawImage(pictures.star, -size / 2, -size / 2, size, size);
+    ctx.restore();
+  }
+
+  for (const p of sparkles) {
+    ctx.globalAlpha = p.life / 0.6;
+    ctx.fillStyle = '#ffd228';
+    ctx.beginPath(); ctx.arc(p.x, p.y, 6 * unit, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+
+  const pw = player.w * unit, ph = player.h * unit;
+  ctx.drawImage(pictures.player, player.x * W - pw / 2, H - ph - 10 * unit, pw, ph);
+
+  if (mode === 'title') {
+    text('Catch the Stars', W / 2, H * 0.35, 80);
+    text('Press Space, A or tap to start', W / 2, H * 0.35 + 70 * unit, 34, '#ffd228');
+    text('Move with the arrows, the stick or your finger', W / 2, H * 0.35 + 120 * unit, 26, '#d8d2ff');
+  } else {
+    text(`★ ${caught}`, W - 90 * unit, 60 * unit, 48, '#ffd228');
+    if (cheer) text(cheer.text, W / 2, H * 0.4, 60, '#ffd228');
+  }
+}
+
+// ---- The game loop ----
+let last = performance.now();
+function frame(now) {
+  const dt = Math.min(0.05, (now - last) / 1000);
+  last = now;
+  update(dt);
+  draw(now);
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
